@@ -13,6 +13,7 @@ LEDGER_DIR="/babylon-ledger/"
 DATE=$(date +%Y-%m-%d)
 METALINK_URL="ftp://snapshots.radix.live/$DATE/RADIXDB-INDEX.tar.zst.metalink"
 DOWNLOAD_FILE="RADIXDB-INDEX.tar.zst"
+REQUIRED_SPACE_GB=500
 
 # Stop the service as radixdlt user
 echo "[0/7] Stopping radix-babylon.service..."
@@ -31,7 +32,6 @@ fi
 
 # 3. Check available disk space (requires ~250GB)
 echo "[3/7] Checking available disk space..."
-REQUIRED_SPACE_GB=250
 AVAILABLE_SPACE_GB=$(df --output=avail -BG "$LEDGER_DIR" | tail -1 | tr -d 'G')
 if [ "$AVAILABLE_SPACE_GB" -ge "$REQUIRED_SPACE_GB" ]; then
   echo "Sufficient disk space available: ${AVAILABLE_SPACE_GB}GB"
