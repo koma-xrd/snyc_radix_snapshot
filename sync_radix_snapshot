@@ -1,0 +1,79 @@
+# To run this script, follow these steps:
+# 1. Save the script as 'sync_radix_snapshot.sh'
+# 2. Make the script executable:
+#    chmod +x sync_radix_snapshot.sh
+# 3. Run the script with sudo:
+#    sudo ./sync_radix_snapshot.sh
+
+
+#!/bin/bash
+START_TIME=$(date +%s)
+
+LEDGER_DIR="/babylon-ledger/"
+DATE=$(date +%Y-%m-%d)
+METALINK_URL="ftp://snapshots.radix.live/$DATE/RADIXDB-INDEX.tar.zst.metalink"
+DOWNLOAD_FILE="RADIXDB-INDEX.tar.zst"
+
+# Stop the service as radixdlt user
+echo "[0/7] Stopping radix-babylon.service..."
+sudo -u radixdlt sudo systemctl stop radix-babylon.service || { echo "Failed to stop radix-babylon.service." >&2; exit 1; }
+
+# 1. Clear existing database contents
+echo "[1/7] Clearing database contents..."
+sudo rm -rf "$LEDGER_DIR"/* || { echo "Error clearing database." >&2; exit 1; }
+
+# 2. Check and install aria2 if necessary
+echo "[2/7] Checking for aria2..."
+if ! command -v aria2c &> /dev/null; then
+  echo "Installing aria2..."
+  sudo apt install -y aria2 || { echo "Failed to install aria2." >&2; exit 1; }
+fi
+
+# 3. Check available disk space (requires ~250GB)
+echo "[3/7] Checking available disk space..."
+REQUIRED_SPACE_GB=250
+AVAILABLE_SPACE_GB=$(df --output=avail -BG "$LEDGER_DIR" | tail -1 | tr -d 'G')
+if [ "$AVAILABLE_SPACE_GB" -ge "$REQUIRED_SPACE_GB" ]; then
+  echo "Sufficient disk space available: ${AVAILABLE_SPACE_GB}GB"
+else
+  echo "Insufficient disk space: Required ${REQUIRED_SPACE_GB}GB, Available ${AVAILABLE_SPACE_GB}GB." >&2
+  exit 1
+fi
+
+# 4. Download snapshot with progress
+echo "[4/7] Downloading snapshot..."
+aria2c -x3 -s16 -k4M --piece-length=4M --disk-cache=256M --lowest-speed-limit=250k \
+  --summary-interval=5 "$METALINK_URL" || {
+  echo "Error during download." >&2
+  exit 1
+}
+
+# 5. Check and install zstd if necessary
+echo "[5/7] Checking for zstd..."
+if ! command -v zstd &> /dev/null; then
+  echo "Installing zstd..."
+  sudo apt install -y zstd || { echo "Failed to install zstd." >&2; exit 1; }
+fi
+
+# 6. Extract snapshot with progress
+echo "[6/7] Extracting snapshot..."
+sudo tar --use-compress-program=zstdmt -xvf "$DOWNLOAD_FILE" --exclude=./address_book -C "$LEDGER_DIR" || {
+  echo "Extraction error." >&2
+  exit 1
+}
+
+# 7. Set owner and output confirmation
+echo "[7/7] Setting ownership to radixdlt user..."
+sudo chown -R radixdlt:radixdlt $LEDGER_DIR || { echo "Failed to change ownership." >&2; exit 1; }
+echo "Ownership successfully changed to radixdlt:radixdlt for $LEDGER_DIR."
+
+# Cleanup
+echo "Cleaning up downloaded files..."
+rm -f "$DOWNLOAD_FILE" || { echo "Failed to remove downloaded files." >&2; exit 1; }
+
+# Start the service again as radixdlt user
+echo "[7/7] Starting radix-babylon.service..."
+sudo -u radixdlt sudo systemctl start radix-babylon.service || { echo "Failed to start radix-babylon.service." >&2; exit 1; }
+
+echo "Radix snapshot sync completed successfully."
+echo "Total execution time: $(( ( $(date +%s) - START_TIME) / 60 )) minutes and $(( ( $(date +%s) - START_TIME) % 60 )) seconds."
